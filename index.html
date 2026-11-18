@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Scrabble Classic - Plateau & IA</title>
+<style>
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; margin: 0; padding: 0; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: #064e3b;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+  }
+  #game-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 10px 14px;
+    background: radial-gradient(circle at top, #065f46 0%, #022c22 100%);
+    color: #fff;
+  }
+  #game-container.royal-theme {
+    background: radial-gradient(circle at top, #312e81 0%, #0f172a 100%);
+  }
+
+  /* Barre supérieure Scores */
+  #hud {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    max-width: 820px;
+    width: 100%;
+    margin: 0 auto 6px auto;
+    flex-shrink: 0;
+  }
+  .score-pill {
+    background: rgba(15, 23, 42, 0.9);
+    border: 2px solid #facc15;
+    border-radius: 24px;
+    padding: 5px 14px;
+    font-size: clamp(12px, 2.8vw, 15px);
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .score-pill.bot { border-color: #38bdf8; }
+  .bag-pill {
+    background: rgba(15, 23, 42, 0.75);
+    border: 1.5px solid rgba(255,255,255,0.25);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  #status-bar {
+    text-align: center;
+    font-size: clamp(12px, 2.8vw, 14px);
+    font-weight: 800;
+    color: #facc15;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+  }
+
+  /* Zone principale : Colonne sur Mobile, 2 Colonnes aérées sur PC */
+  .main-layout {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    max-width: 860px;
+    width: 100%;
+    margin: 0 auto;
+    min-height: 0;
+  }
+  @media (min-width: 720px) {
+    .main-layout {
+      flex-direction: row;
+      gap: 24px;
+    }
+  }
+
+  /* Plateau carré 9x9 épuré et 100% visible */
+  .board-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    grid-template-rows: repeat(9, 1fr);
+    gap: 3px;
+    background: #1e293b;
+    padding: 6px;
+    border-radius: 12px;
+    border: 3px solid #facc15;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.45);
+    width: min(88vw, 52vh, 410px);
+    height: min(88vw, 52vh, 410px);
+  }
+  @media (min-width: 720px) {
+    #board {
+      width: min(46vw, 72vh, 430px);
+      height: min(46vw, 72vh, 430px);
+    }
+  }
+
+  .cell {
+    position: relative;
+    background: #ecfdf5;
+    border-radius: 4px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 10px;
+    font-weight: 900;
+    color: rgba(15, 23, 42, 0.55);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .cell:hover { background: #d1fae5; }
+  .cell.TW { background: #fca5a5; color: #7f1d1d; } /* Mot x3 doux */
+  .cell.DW { background: #fbcfe8; color: #831843; } /* Mot x2 doux */
+  .cell.TL { background: #93c5fd; color: #1e3a8a; } /* Lettre x3 doux */
+  .cell.DL { background: #bae6fd; color: #0c4a6e; } /* Lettre x2 doux */
+  .cell.ST { background: #fde047; color: #854d0e; font-size: 14px; }
+  .cell.hint-cell {
+    outline: 3px dashed #22c55e;
+    background: #bbf7d0 !important;
+  }
+
+  /* Tuile posée sur le plateau */
+  .board-tile {
+    position: absolute;
+    inset: 1px;
+    background: linear-gradient(180deg, #fef3c7 0%, #f59e0b 100%);
+    color: #1e293b;
+    border-radius: 4px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: clamp(15px, 3.8vw, 21px);
+    font-weight: 900;
+    box-shadow: 0 2px 0 #92400e;
+  }
+  .board-tile.temp {
+    background: linear-gradient(180deg, #bbf7d0 0%, #22c55e 100%);
+    box-shadow: 0 2px 0 #15803d;
+    border: 1.5px solid #fff;
+  }
+  .board-tile.bot-last {
+    outline: 2.5px solid #38bdf8;
+  }
+  .board-tile .mini-pts {
+    position: absolute;
+    bottom: 1px;
+    right: 3px;
+    font-size: 8px;
+    font-weight: 800;
+  }
+
+  /* Panneau Chevalet & Boutons */
+  .side-controls {
+    width: 100%;
+    max-width: 410px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #cbd5e1;
+  }
+  .leg-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+
+  #rack {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+    background: rgba(15, 23, 42, 0.8);
+    padding: 8px;
+    border-radius: 14px;
+    border: 2px solid rgba(250, 204, 21, 0.5);
+  }
+  .rack-tile {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    background: linear-gradient(180deg, #fef3c7 0%, #f59e0b 100%);
+    color: #1e293b;
+    border-radius: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: clamp(18px, 4.2vw, 24px);
+    font-weight: 900;
+    box-shadow: 0 4px 0 #b45309;
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+  .rack-tile.selected {
+    transform: translateY(-6px);
+    outline: 3px solid #4ade80;
+    background: #fef08a;
+  }
+  .rack-tile.placed {
+    opacity: 0.25;
+    pointer-events: none;
+  }
+  .rack-tile .pts {
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    font-size: 9px;
+    font-weight: 800;
+    color: #78350f;
+  }
+
+  .actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+  }
+  .act-btn {
+    padding: 10px 8px;
+    border: none;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 900;
+    color: #fff;
+    cursor: pointer;
+    text-transform: uppercase;
+    box-shadow: 0 3px 0 rgba(0,0,0,0.35);
+  }
+  .act-btn:active { transform: translateY(2px); }
+  .btn-recall { background: #475569; }
+  .btn-swap { background: #0284c7; }
+  .btn-hint { background: #8b5cf6; }
+  .btn-play { background: #22c55e; color: #052e16; font-size: 13px; }
+
+  /* Écrans Accueil & Fin */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(5px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    color: white;
+    padding: 16px;
+    z-index: 30;
+    overflow-y: auto;
+  }
+  .hidden { display: none !important; }
+  h1 {
+    font-size: clamp(24px, 5.5vw, 40px);
+    color: #facc15;
+    text-shadow: 0 4px 0 #b45309, 0 8px 15px rgba(0,0,0,0.6);
+    margin-bottom: 10px;
+  }
+  .howto-card {
+    background: rgba(30, 41, 59, 0.92);
+    border: 2px solid rgba(250, 204, 21, 0.55);
+    border-radius: 16px;
+    padding: 12px 15px;
+    max-width: 460px;
+    width: 100%;
+    margin-bottom: 14px;
+    text-align: left;
+  }
+  .howto-title {
+    font-size: 13px;
+    font-weight: 900;
+    color: #facc15;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+  .howto-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: clamp(12px, 2.9vw, 14px);
+    color: #e2e8f0;
+    line-height: 1.35;
+  }
+  .selector-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .opt-btn {
+    background: rgba(255,255,255,0.1);
+    border: 2px solid #475569;
+    color: #fff;
+    padding: 7px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .opt-btn.active {
+    border-color: #facc15;
+    background: rgba(250, 204, 21, 0.25);
+  }
+  .btn-main {
+    background: linear-gradient(180deg, #facc15 0%, #eab308 100%);
+    color: #0f172a;
+    border: 3px solid #fff;
+    padding: 13px 34px;
+    font-size: clamp(16px, 4vw, 20px);
+    font-weight: 900;
+    border-radius: 50px;
+    cursor: pointer;
+    box-shadow: 0 6px 0 #a16207;
+    text-transform: uppercase;
+  }
+  .btn-share {
+    background: linear-gradient(180deg, #22c55e 0%, #15803d 100%);
+    color: #fff;
+    border: 2px solid #bbf7d0;
+    padding: 11px 20px;
+    border-radius: 50px;
+    font-size: clamp(12px, 3vw, 14px);
+    font-weight: 900;
+    cursor: pointer;
+    margin-top: 12px;
+    box-shadow: 0 5px 0 #14532d;
+  }
+  .stats-grid {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .stat-card {
+    background: rgba(255,255,255,0.1);
+    padding: 10px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(250, 204, 21, 0.4);
+  }
+  .stat-label { font-size: 11px; color: #94a3b8; text-transform: uppercase; }
+  .stat-val { font-size: clamp(20px, 4.5vw, 25px); font-weight: 900; color: #facc15; }
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <div id="hud">
+    <div class="score-pill">👤 TOI : <span id="player-score">0</span></div>
+    <div class="bag-pill">🎒 Sac : <span id="bag-count">70</span></div>
+    <div class="score-pill bot">🤖 IA : <span id="bot-score">0</span></div>
+  </div>
+
+  <div id="status-bar">À toi ! Touche une lettre en bas puis une case du plateau.</div>
+
+  <div class="main-layout">
+    <div class="board-wrapper">
+      <div id="board"></div>
+    </div>
+
+    <div class="side-controls">
+      <div class="legend">
+        <span><i class="leg-dot" style="background:#fca5a5;"></i>MT (x3)</span>
+        <span><i class="leg-dot" style="background:#fbcfe8;"></i>MD (x2)</span>
+        <span><i class="leg-dot" style="background:#93c5fd;"></i>LT (x3)</span>
+        <span><i class="leg-dot" style="background:#bae6fd;"></i>LD (x2)</span>
+      </div>
+      <div id="rack"></div>
+      <div class="actions">
+        <button class="act-btn btn-recall" id="btn-recall">↩ Reprendre</button>
+        <button class="act-btn btn-swap" id="btn-swap">🔄 Changer</button>
+        <button class="act-btn btn-hint" id="btn-hint">💡 Indice</button>
+        <button class="act-btn btn-play" id="btn-play">✔ Poser le mot</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="start-screen" class="overlay">
+    <h1>🎲 SCRABBLE</h1>
+    <div class="howto-card">
+      <div class="howto-title">📋 Comment jouer sur le plateau</div>
+      <ul class="howto-list">
+        <li>1️⃣ <b>Touche une lettre</b> dans ton chevalet (elle s'illumine en vert).</li>
+        <li>2️⃣ <b>Touche une case libre</b> du plateau pour croiser le mot déjà posé au centre.</li>
+        <li>3️⃣ Appuie sur <b>Poser le mot</b> pour marquer tes points (ou utilise <b>💡 Indice</b> si tu hésites) !</li>
+      </ul>
+    </div>
+    <div class="selector-row">
+      <button class="opt-btn active" id="lang-fr">🇫🇷 Français</button>
+      <button class="opt-btn" id="lang-en">🇬🇧 English</button>
+      <button class="opt-btn" id="theme-toggle">👑 Plateau Royal (🔒 Inviter 1 ami)</button>
+    </div>
+    <button class="btn-main" id="start-btn">COMMENCER LA PARTIE</button>
+  </div>
+
+  <div id="gameover-screen" class="overlay hidden">
+    <h1 id="winner-title">🏆 VICTOIRE !</h1>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Ton Score</div>
+        <div class="stat-val" id="final-player" style="color:#4ade80;">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Score IA</div>
+        <div class="stat-val" id="final-bot" style="color:#38bdf8;">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Record</div>
+        <div class="stat-val" id="final-best">0</div>
+      </div>
+    </div>
+    <button class="btn-main" id="restart-btn">NOUVELLE PARTIE</button>
+    <button class="btn-share" id="share-btn">🎁 DÉFIER 1 AMI & DÉBLOQUER LE PLATEAU ROYAL</button>
+  </div>
+</div>
+
+<script>
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+
+function initAudio() {
+  if (!audioCtx) audioCtx = new AudioCtx();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playSound(type) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  const now = audioCtx.currentTime;
+
+  if (type === 'place') {
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(380, now);
+    gain.gain.setValueAtTime(0.09, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+    osc.start(now); osc.stop(now + 0.07);
+  } else if (type === 'score') {
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(523, now);
+    osc.frequency.setValueAtTime(784, now + 0.09);
+    gain.gain.setValueAtTime(0.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+    osc.start(now); osc.stop(now + 0.28);
+  } else if (type === 'error') {
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(160, now);
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    osc.start(now); osc.stop(now + 0.18);
+  }
+}
+
+const SIZE = 9;
+const LETTER_PTS = { A:1,B:3,C:3,D:2,E:1,F:4,G:2,H:4,I:1,J:8,K:10,L:1,M:2,N:1,O:1,P:3,Q:8,R:1,S:1,T:1,U:1,V:4,W:10,X:10,Y:10,Z:10 };
+
+// Plateau 9x9 épuré : cases bonus espacées pour ne pas surcharger visuellement
+const BONUS_MAP = {
+  '0,0':'TW','0,4':'TW','0,8':'TW','4,0':'TW','4,8':'TW','8,0':'TW','8,4':'TW','8,8':'TW',
+  '1,1':'DW','1,7':'DW','7,1':'DW','7,7':'DW',
+  '2,4':'TL','4,2':'TL','4,6':'TL','6,4':'TL',
+  '0,2':'DL','0,6':'DL','2,0':'DL','6,0':'DL','8,2':'DL','8,6':'DL','2,8':'DL','6,8':'DL',
+  '4,4':'ST'
+};
+
+const WORDS_FR = ['AMI','ART','AIR','BAL','BAS','BEL','BOIS','BON','BRAS','BUT','CAR','CHAT','CIEL','CLE','CODE','COEUR','COUR','DANS','DATE','DIRE','DON','DOUX','EAU','ECOLE','FACE','FAIM','FER','FEU','FIL','FIN','FOIS','FORT','GARE','GROS','HAUT','ILE','JEU','JOIE','JOUR','LAC','LAIT','LIEN','LIRE','LIT','LOI','LONG','LUNE','MAIN','MAIS','MER','MIEL','MOIS','MOT','MUR','NOIR','NOM','NORD','NUIT','OR','OS','PAIN','PAIX','PARC','PART','PAS','PAYS','PEAU','PERE','PIED','PLAN','PLAT','PONT','PORT','PRIX','RARE','RIRE','ROI','ROSE','ROUE','RUE','SAC','SANG','SAUT','SEC','SEL','SOIR','SOL','SUD','TABLE','TEMPS','TERRE','TETE','TOIT','TOUR','TRAIN','VENT','VERT','VIE','VILLE','VIN','VITE','VOIE','VOIX','VRAI','ZONE'];
+const WORDS_EN = ['ACE','ACT','AGE','AIR','ART','BAG','BAR','BAT','BED','BIG','BOX','BUS','CAR','CAT','CUP','DAY','DOG','EAR','EAT','EYE','FLY','FUN','GAME','GOLD','GOOD','HAT','HOT','ICE','JOB','JOY','KEY','KING','LAW','LIFE','LINE','LION','LOVE','MAN','MAP','MIND','MOON','NEW','OIL','OLD','ONE','PLAY','RAIN','RED','RICE','RICH','RING','ROAD','RUN','SEA','SHIP','SKY','STAR','SUN','TEA','TIME','TOP','TREE','TRUE','WIN','WORD','WORK','ZERO'];
+
+let lang = 'FR';
+let royalUnlocked = localStorage.getItem('scrabble_board_royal') === 'true';
+let royalActive = localStorage.getItem('scrabble_board_royal_active') === 'true';
+let bestScore = parseInt(localStorage.getItem('scrabble_board_best')) || 0;
+
+function updateThemeUI() {
+  const container = document.getElementById('game-container');
+  const btn = document.getElementById('theme-toggle');
+  container.classList.toggle('royal-theme', royalActive && royalUnlocked);
+  btn.textContent = royalUnlocked ? (royalActive ? '👑 Plateau Royal (Actif)' : '👑 Plateau Royal (Débloqué)') : '👑 Plateau Royal (🔒 Inviter 1 ami)';
+  btn.classList.toggle('active', royalActive && royalUnlocked);
+}
+updateThemeUI();
+
+let grid = [];
+let bag = [];
+let rack = [];
+let selectedRackIdx = -1;
+let hintCell = null;
+let playerScore = 0;
+let botScore = 0;
+let isPlayerTurn = true;
+let passesInRow = 0;
+
+function setStatus(msg, color = '#facc15') {
+  const el = document.getElementById('status-bar');
+  el.textContent = msg;
+  el.style.color = color;
+}
+
+function initBag() {
+  const dist = lang === 'FR'
+    ? 'AAAAAAAAAEEEEEEEEEEEEEEEIIIIIIIINNNNNNOOOOOORRRRRRSSSSSSTTTTTTUUUUUULLLLLDDDMMMPPPBCCFFGGHHVVJQKXYZ'
+    : 'AAAAAAAAAEEEEEEEEEEEEIIIIIIIIOOOOOOOONNNNNNRRRRRRTTTTTTLLLLSSSSUUUUDDDDGGGBBCCMMPPFFHHVVWWYYKJXQZ';
+  bag = dist.split('').sort(() => Math.random() - 0.5);
+  document.getElementById('bag-count').textContent = bag.length;
+}
+
+function drawLetters(count) {
+  const drawn = [];
+  for (let i = 0; i < count && bag.length > 0; i++) {
+    drawn.push({ char: bag.pop(), placed: false });
+  }
+  document.getElementById('bag-count').textContent = bag.length;
+  return drawn;
+}
+
+function initBoard() {
+  grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+  const starters = lang === 'FR' ? ['JOUER', 'MONDE', 'TABLE', 'SPORT'] : ['WORLD', 'GAMES', 'SMART', 'POWER'];
+  const word = starters[Math.floor(Math.random() * starters.length)];
+  const startCol = Math.floor((SIZE - word.length) / 2);
+  for (let i = 0; i < word.length; i++) {
+    grid[4][startCol + i] = { char: word[i], isTemp: false, isBotLast: false };
+  }
+}
+
+function renderBoard() {
+  const boardEl = document.getElementById('board');
+  boardEl.innerHTML = '';
+
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const cell = document.createElement('div');
+      const bonus = BONUS_MAP[`${r},${c}`] || '';
+      cell.className = 'cell' + (bonus ? ' ' + bonus : '');
+      if (hintCell && hintCell.r === r && hintCell.c === c) cell.classList.add('hint-cell');
+
+      if (bonus === 'TW') cell.textContent = 'MT';
+      else if (bonus === 'DW') cell.textContent = 'MD';
+      else if (bonus === 'TL') cell.textContent = 'LT';
+      else if (bonus === 'DL') cell.textContent = 'LD';
+      else if (bonus === 'ST') cell.textContent = '★';
+
+      const tile = grid[r][c];
+      if (tile) {
+        const tDiv = document.createElement('div');
+        tDiv.className = 'board-tile' + (tile.isTemp ? ' temp' : '') + (tile.isBotLast ? ' bot-last' : '');
+        tDiv.innerHTML = `${tile.char}<span class="mini-pts">${LETTER_PTS[tile.char] || 1}</span>`;
+        cell.appendChild(tDiv);
+      }
+
+      cell.onclick = () => onCellClick(r, c);
+      boardEl.appendChild(cell);
+    }
+  }
+}
+
+function renderRack() {
+  const rackEl = document.getElementById('rack');
+  rackEl.innerHTML = '';
+  rack.forEach((item, idx) => {
+    const div = document.createElement('div');
+    div.className = 'rack-tile' + (selectedRackIdx === idx ? ' selected' : '') + (item.placed ? ' placed' : '');
+    div.innerHTML = `${item.char}<span class="pts">${LETTER_PTS[item.char] || 1}</span>`;
+    div.onclick = () => {
+      if (!isPlayerTurn || item.placed) return;
+      playSound('place');
+      selectedRackIdx = (selectedRackIdx === idx) ? -1 : idx;
+      renderRack();
+    };
+    rackEl.appendChild(div);
+  });
+}
+
+function onCellClick(r, c) {
+  if (!isPlayerTurn) return;
+  hintCell = null;
+  const existing = grid[r][c];
+
+  if (existing && existing.isTemp) {
+    const rackItem = rack.find(it => it.placed && it.char === existing.char && it.r === r && it.c === c);
+    if (rackItem) {
+      rackItem.placed = false;
+      delete rackItem.r;
+      delete rackItem.c;
+    }
+    grid[r][c] = null;
+    playSound('place');
+    renderBoard();
+    renderRack();
+    return;
+  }
+
+  if (!existing && selectedRackIdx !== -1) {
+    const item = rack[selectedRackIdx];
+    grid[r][c] = { char: item.char, isTemp: true, isBotLast: false };
+    item.placed = true;
+    item.r = r;
+    item.c = c;
+    selectedRackIdx = -1;
+    playSound('place');
+    renderBoard();
+    renderRack();
+  } else if (!existing && selectedRackIdx === -1) {
+    setStatus('👆 Touche d\'abord une lettre dans ton chevalet !', '#38bdf8');
+  }
+}
+
+function recallTiles() {
+  hintCell = null;
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (grid[r][c] && grid[r][c].isTemp) grid[r][c] = null;
+    }
+  }
+  rack.forEach(it => { it.placed = false; delete it.r; delete it.c; });
+  selectedRackIdx = -1;
+  renderBoard();
+  renderRack();
+}
+
+function showHint() {
+  if (!isPlayerTurn) return;
+  const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+  for (let r = 1; r < SIZE - 1; r++) {
+    for (let c = 1; c < SIZE - 1; c++) {
+      if (grid[r][c] && !grid[r][c].isTemp) {
+        for (const [dr, dc] of dirs) {
+          const nr = r + dr, nc = c + dc;
+          if (!grid[nr][nc]) {
+            hintCell = { r: nr, c: nc };
+            renderBoard();
+            setStatus(`💡 Pose une lettre sur la case verte clignotante à côté du "${grid[r][c].char}" !`, '#a78bfa');
+            return;
+          }
+        }
+      }
+    }
+  }
+}
+
+function validateAndScorePlayerMove() {
+  if (!isPlayerTurn) return;
+  hintCell = null;
+
+  const tempCoords = [];
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (grid[r][c] && grid[r][c].isTemp) tempCoords.push({ r, c });
+    }
+  }
+
+  if (tempCoords.length === 0) {
+    playSound('error');
+    setStatus('⚠️ Pose au moins 1 lettre sur le plateau !', '#f87171');
+    return;
+  }
+
+  const sameRow = tempCoords.every(p => p.r === tempCoords[0].r);
+  const sameCol = tempCoords.every(p => p.c === tempCoords[0].c);
+  if (!sameRow && !sameCol) {
+    playSound('error');
+    setStatus('❌ Aligne tes lettres sur une même ligne ou colonne !', '#f87171');
+    return;
+  }
+
+  let connected = false;
+  const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+  for (const p of tempCoords) {
+    for (const [dr, dc] of dirs) {
+      const nr = p.r + dr, nc = p.c + dc;
+      if (nr >= 0 && nr < SIZE && nc >= 0 && nc < SIZE && grid[nr][nc] && !grid[nr][nc].isTemp) {
+        connected = true;
+      }
+    }
+  }
+  if (!connected) {
+    playSound('error');
+    setStatus('❌ Ton mot doit toucher un mot déjà posé sur la grille !', '#f87171');
+    return;
+  }
+
+  let wordStr = '';
+  let wordPoints = 0;
+  let wordMultiplier = 1;
+
+  if (sameRow) {
+    const r = tempCoords[0].r;
+    let minC = Math.min(...tempCoords.map(p => p.c));
+    let maxC = Math.max(...tempCoords.map(p => p.c));
+    while (minC > 0 && grid[r][minC - 1]) minC--;
+    while (maxC < SIZE - 1 && grid[r][maxC + 1]) maxC++;
+
+    for (let c = minC; c <= maxC; c++) {
+      if (!grid[r][c]) {
+        playSound('error');
+        setStatus('❌ Ne laisse pas de case vide au milieu du mot !', '#f87171');
+        return;
+      }
+      const t = grid[r][c];
+      wordStr += t.char;
+      let lPts = LETTER_PTS[t.char] || 1;
+      if (t.isTemp) {
+        const b = BONUS_MAP[`${r},${c}`];
+        if (b === 'DL') lPts *= 2;
+        if (b === 'TL') lPts *= 3;
+        if (b === 'DW' || b === 'ST') wordMultiplier *= 2;
+        if (b === 'TW') wordMultiplier *= 3;
+      }
+      wordPoints += lPts;
+    }
+  } else {
+    const c = tempCoords[0].c;
+    let minR = Math.min(...tempCoords.map(p => p.r));
+    let maxR = Math.max(...tempCoords.map(p => p.r));
+    while (minR > 0 && grid[minR - 1][c]) minR--;
+    while (maxR < SIZE - 1 && grid[maxR + 1][c]) maxR++;
+
+    for (let r = minR; r <= maxR; r++) {
+      if (!grid[r][c]) {
+        playSound('error');
+        setStatus('❌ Ne laisse pas de case vide au milieu du mot !', '#f87171');
+        return;
+      }
+      const t = grid[r][c];
+      wordStr += t.char;
+      let lPts = LETTER_PTS[t.char] || 1;
+      if (t.isTemp) {
+        const b = BONUS_MAP[`${r},${c}`];
+        if (b === 'DL') lPts *= 2;
+        if (b === 'TL') lPts *= 3;
+        if (b === 'DW' || b === 'ST') wordMultiplier *= 2;
+        if (b === 'TW') wordMultiplier *= 3;
+      }
+      wordPoints += lPts;
+    }
+  }
+
+  if (wordStr.length < 2) {
+    playSound('error');
+    setStatus('❌ Le mot doit faire au moins 2 lettres !', '#f87171');
+    return;
+  }
+
+  for (const p of tempCoords) {
+    grid[p.r][p.c].isTemp = false;
+  }
+
+  let totalScore = wordPoints * wordMultiplier;
+  if (tempCoords.length === 7) totalScore += 30;
+
+  playerScore += totalScore;
+  passesInRow = 0;
+  document.getElementById('player-score').textContent = playerScore;
+  playSound('score');
+  setStatus(`✅ Mot "${wordStr}" posé : +${totalScore} pts ! Tour de l'IA...`, '#4ade80');
+
+  rack = rack.filter(it => !it.placed);
+  rack.push(...drawLetters(7 - rack.length));
+  renderBoard();
+  renderRack();
+
+  if (rack.length === 0) {
+    endGame();
+    return;
+  }
+
+  isPlayerTurn = false;
+  setTimeout(playBotTurn, 900);
+}
+
+function playBotTurn() {
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (grid[r][c]) grid[r][c].isBotLast = false;
+    }
+  }
+
+  const dict = lang === 'FR' ? WORDS_FR : WORDS_EN;
+  const shuffledWords = [...dict].sort(() => Math.random() - 0.5);
+  let placedWord = null;
+  let botPts = 0;
+
+  for (let r = 1; r < SIZE - 1 && !placedWord; r++) {
+    for (let c = 1; c < SIZE - 1 && !placedWord; c++) {
+      const anchor = grid[r][c];
+      if (!anchor) continue;
+
+      const hasHorizNeighbors = (grid[r][c - 1] || grid[r][c + 1]);
+      const hasVertNeighbors = (grid[r - 1][c] || grid[r + 1][c]);
+
+      if (hasHorizNeighbors && !hasVertNeighbors) {
+        for (const w of shuffledWords) {
+          const idx = w.indexOf(anchor.char);
+          if (idx === -1) continue;
+          const startR = r - idx;
+          const endR = startR + w.length - 1;
+          if (startR < 0 || endR >= SIZE) continue;
+
+          let canFit = true;
+          for (let k = 0; k < w.length; k++) {
+            const cr = startR + k;
+            if (cr === r) continue;
+            if (grid[cr][c] || (c > 0 && grid[cr][c - 1]) || (c < SIZE - 1 && grid[cr][c + 1])) {
+              canFit = false; break;
+            }
+          }
+          if (canFit && (startR === 0 || !grid[startR - 1][c]) && (endR === SIZE - 1 || !grid[endR + 1][c])) {
+            for (let k = 0; k < w.length; k++) {
+              const cr = startR + k;
+              if (cr !== r) {
+                grid[cr][c] = { char: w[k], isTemp: false, isBotLast: true };
+                if (bag.length > 0) bag.pop();
+              }
+              botPts += LETTER_PTS[w[k]] || 1;
+            }
+            placedWord = w;
+            break;
+          }
+        }
+      } else if (hasVertNeighbors && !hasHorizNeighbors) {
+        for (const w of shuffledWords) {
+          const idx = w.indexOf(anchor.char);
+          if (idx === -1) continue;
+          const startC = c - idx;
+          const endC = startC + w.length - 1;
+          if (startC < 0 || endC >= SIZE) continue;
+
+          let canFit = true;
+          for (let k = 0; k < w.length; k++) {
+            const cc = startC + k;
+            if (cc === c) continue;
+            if (grid[r][cc] || (r > 0 && grid[r - 1][cc]) || (r < SIZE - 1 && grid[r + 1][cc])) {
+              canFit = false; break;
+            }
+          }
+          if (canFit && (startC === 0 || !grid[r][startC - 1]) && (endC === SIZE - 1 || !grid[r][endC + 1])) {
+            for (let k = 0; k < w.length; k++) {
+              const cc = startC + k;
+              if (cc !== c) {
+                grid[r][cc] = { char: w[k], isTemp: false, isBotLast: true };
+                if (bag.length > 0) bag.pop();
+              }
+              botPts += LETTER_PTS[w[k]] || 1;
+            }
+            placedWord = w;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  document.getElementById('bag-count').textContent = bag.length;
+
+  if (placedWord) {
+    botScore += botPts;
+    passesInRow = 0;
+    document.getElementById('bot-score').textContent = botScore;
+    setStatus(`🤖 L'IA a posé "${placedWord}" (+${botPts} pts). À toi !`, '#38bdf8');
+  } else {
+    passesInRow++;
+    setStatus(`🤖 L'IA passe son tour. À toi de jouer !`, '#facc15');
+  }
+
+  renderBoard();
+  if (passesInRow >= 3 || (bag.length === 0 && !placedWord)) {
+    endGame();
+    return;
+  }
+  isPlayerTurn = true;
+}
+
+function swapTiles() {
+  if (!isPlayerTurn) return;
+  recallTiles();
+  if (bag.length < 3) {
+    setStatus('⚠️ Plus assez de lettres dans le sac !', '#f87171');
+    return;
+  }
+  rack.forEach(it => bag.push(it.char));
+  bag.sort(() => Math.random() - 0.5);
+  rack = drawLetters(7);
+  renderRack();
+  isPlayerTurn = false;
+  setStatus('🔄 Lettres changées ! Tour de l\'IA...', '#38bdf8');
+  setTimeout(playBotTurn, 800);
+}
+
+function startGame() {
+  initAudio();
+  playerScore = 0;
+  botScore = 0;
+  passesInRow = 0;
+  selectedRackIdx = -1;
+  hintCell = null;
+  isPlayerTurn = true;
+
+  document.getElementById('player-score').textContent = '0';
+  document.getElementById('bot-score').textContent = '0';
+
+  initBag();
+  initBoard();
+  rack = drawLetters(7);
+
+  renderBoard();
+  renderRack();
+  setStatus('À toi ! Touche une lettre en bas puis une case sur la grille.');
+
+  document.getElementById('start-screen').classList.add('hidden');
+  document.getElementById('gameover-screen').classList.add('hidden');
+}
+
+function endGame() {
+  isPlayerTurn = false;
+  if (playerScore > bestScore) {
+    bestScore = playerScore;
+    localStorage.setItem('scrabble_board_best', bestScore);
+  }
+  const title = document.getElementById('winner-title');
+  if (playerScore > botScore) {
+    title.textContent = '🏆 VICTOIRE !';
+    title.style.color = '#facc15';
+  } else if (playerScore < botScore) {
+    title.textContent = '🤖 L\'IA GAGNE !';
+    title.style.color = '#38bdf8';
+  } else {
+    title.textContent = '🤝 MATCH NUL !';
+    title.style.color = '#fff';
+  }
+
+  document.getElementById('final-player').textContent = playerScore;
+  document.getElementById('final-bot').textContent = botScore;
+  document.getElementById('final-best').textContent = bestScore;
+  document.getElementById('gameover-screen').classList.remove('hidden');
+}
+
+function shareAndUnlock() {
+  royalUnlocked = true;
+  royalActive = true;
+  localStorage.setItem('scrabble_board_royal', 'true');
+  localStorage.setItem('scrabble_board_royal_active', 'true');
+  updateThemeUI();
+  const text = encodeURIComponent(`🎲 J'ai fait ${playerScore} points au Scrabble contre l'IA ! Peux-tu battre mon record ? Joue ici : ${window.location.href}`);
+  window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+}
+
+document.getElementById('lang-fr').onclick = () => {
+  lang = 'FR';
+  document.getElementById('lang-fr').classList.add('active');
+  document.getElementById('lang-en').classList.remove('active');
+};
+document.getElementById('lang-en').onclick = () => {
+  lang = 'EN';
+  document.getElementById('lang-en').classList.add('active');
+  document.getElementById('lang-fr').classList.remove('active');
+};
+document.getElementById('theme-toggle').onclick = () => {
+  if (royalUnlocked) {
+    royalActive = !royalActive;
+    localStorage.setItem('scrabble_board_royal_active', royalActive);
+    updateThemeUI();
+  } else {
+    shareAndUnlock();
+  }
+};
+
+document.getElementById('start-btn').onclick = startGame;
+document.getElementById('restart-btn').onclick = startGame;
+document.getElementById('share-btn').onclick = shareAndUnlock;
+document.getElementById('btn-recall').onclick = recallTiles;
+document.getElementById('btn-swap').onclick = swapTiles;
+document.getElementById('btn-hint').onclick = showHint;
+document.getElementById('btn-play').onclick = validateAndScorePlayerMove;
+</script>
+</body>
+</html>
